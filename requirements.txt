@@ -1,0 +1,8 @@
+trimesh>=4
+numpy
+scipy
+shapely>=2
+reportlab
+fast-simplification
+gradio_client
+pillow
