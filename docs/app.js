@@ -102,7 +102,7 @@ function hints() {
     "150": "A good balance for most objects.",
     "250": "Smoother shape, but more small pieces to cut and glue.",
   }[choice.faces];
-  $("name-hint").textContent = big
+  $("size-hint").textContent = big
     ? `At ${mm / 10} cm the model needs many ${choice.paper} sheets. A3 paper keeps the pieces larger and the sheet count lower.`
     : "";
 }
