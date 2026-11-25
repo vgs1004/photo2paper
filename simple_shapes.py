@@ -26,7 +26,7 @@ LETTERS = "ABCDEFGHIJKL"
 
 # ------------------------------------------------------------------ profile
 def _surface_samples(mesh, scale, sampler, n=700_000):
-    pts, fidx = trimesh.sample.sample_surface(mesh, n)
+    pts, fidx = trimesh.sample.sample_surface(mesh, n, seed=1)
     pts = pts * scale
     if sampler is not None:
         cols = sampler.sample(pts, mesh.face_normals[fidx]).astype(np.float32)
@@ -66,7 +66,7 @@ def _fit_segments(hs, prof, max_parts, min_frac=0.12):
             coef, *_ = np.linalg.lstsq(A, yv, rcond=None)
             cost[i, j] = ((A @ coef - yv) ** 2).sum()
     best = None
-    tol = 0.035 * prof.max()            # outline within ~3.5% of the widest radius is good enough
+    tol = 0.012 * prof.max()            # outline within ~1% of the widest radius: no more parts needed
     for k in range(1, max_parts + 1):
         dp = np.full((k + 1, n + 1), np.inf)
         back = np.zeros((k + 1, n + 1), int)
@@ -80,7 +80,7 @@ def _fit_segments(hs, prof, max_parts, min_frac=0.12):
         rms = math.sqrt(err / n)
         # stop adding parts once another one barely changes the outline
         # (fewer parts = easier to build)
-        if best is not None and (best[2] < tol or rms > 0.85 * best[2]):
+        if best is not None and (best[2] < tol or rms > 0.93 * best[2]):
             break
         cuts, j = [], n
         for s in range(k, 0, -1):

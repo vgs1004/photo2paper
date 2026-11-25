@@ -451,8 +451,7 @@ class TextureSampler:
         img = getattr(mat, "baseColorTexture", None) or getattr(mat, "image", None)
         tex = np.asarray(img.convert("RGB"), dtype=np.float32)
         h, w = tex.shape[:2]
-        pts, fidx = trimesh.sample.sample_surface_even(mesh, n_samples) if False else \
-            trimesh.sample.sample_surface(mesh, n_samples)
+        pts, fidx = trimesh.sample.sample_surface(mesh, n_samples, seed=0)
         bary = trimesh.triangles.points_to_barycentric(mesh.triangles[fidx], pts)
         uv = (np.asarray(vis.uv, dtype=np.float64)[mesh.faces[fidx]] * bary[:, :, None]).sum(axis=1)
         u = (uv[:, 0] % 1.0) * (w - 1)
