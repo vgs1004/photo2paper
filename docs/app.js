@@ -27,7 +27,7 @@ const store = {
 let token = "";
 let photo = null;          // { base64, ext, url }
 let busy = false;
-const choice = { size: "150", paper: "A4", faces: "150" };
+const choice = { size: "150", paper: "A4", faces: "150", style: "simple" };
 
 // ---------------------------------------------------------------- setup
 for (const id of ["repo-link", "repo-foot"]) $(id).href = `https://github.com/${REPO}`;
@@ -83,6 +83,7 @@ function seg(id, key, onChange) {
 }
 seg("size-seg", "size", () => { $("custom-row").hidden = choice.size !== "custom"; hints(); });
 seg("paper-seg", "paper", hints);
+seg("style-seg", "style", hints);
 seg("detail-seg", "faces", hints);
 $("custom-size").addEventListener("input", hints);
 
@@ -97,7 +98,14 @@ function sizeMm() {
 function hints() {
   const mm = sizeMm();
   const big = mm >= 300 && choice.paper !== "A3";
-  $("detail-hint").textContent = {
+  $("style-hint").textContent = choice.style === "simple"
+    ? "A few cylinders and cones with the picture printed on, like PaperToys. Easy to build. Best for upright, roundish things: figures, characters, bottles."
+    : "The true 3D shape folded from many flat faces. Takes longer to build. Better for boxy or flat objects.";
+  $("detail-hint").textContent = choice.style === "simple" ? {
+    "80": "3 parts: quickest to build.",
+    "150": "4 parts: a good balance (about the same as PaperToys).",
+    "250": "Up to 6 parts: follows the outline more closely.",
+  }[choice.faces] : {
     "80": "Fewer, bigger pieces: quickest to build, chunkier look.",
     "150": "A good balance for most objects.",
     "250": "Smoother shape, but more small pieces to cut and glue.",
@@ -197,10 +205,10 @@ $("go").onclick = async () => {
   try {
     const slug = await uniqueSlug(slugify($("name").value));
     $("job-name").textContent = `“${slug}”`;
-    const settings = { size: sizeMm(), faces: parseInt(choice.faces, 10), paper: choice.paper };
+    const settings = { style: choice.style, size: sizeMm(), faces: parseInt(choice.faces, 10), paper: choice.paper };
     const sha = await commitFiles({
       repo: REPO, token, branch: BRANCH,
-      message: `Add photo ${slug} (${settings.size / 10} cm, ${settings.paper})`,
+      message: `Add photo ${slug} (${settings.style}, ${settings.size / 10} cm, ${settings.paper})`,
       files: [
         { path: `photos/${slug}.json`, base64: utf8Base64(JSON.stringify(settings, null, 2) + "\n") },
         { path: `photos/${slug}.${photo.ext}`, base64: photo.base64 },

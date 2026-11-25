@@ -6,3 +6,4 @@ reportlab
 fast-simplification
 gradio_client
 pillow
+pymupdf  # tests only

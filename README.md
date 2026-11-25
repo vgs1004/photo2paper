@@ -20,9 +20,10 @@ Full output: [examples/telephone_papercraft.pdf](examples/telephone_papercraft.p
 
 Open **https://vgs1004.github.io/photo2paper/**, connect once with a GitHub token (the page explains how), drop a photo, and pick:
 
+- **Style**: *Simple shapes* (default): a few cylinders and cones with the picture printed on, like PaperToys. Easy to build; best for upright, roundish things such as figures, characters and bottles. *Faceted*: the true 3D shape folded from many flat faces; better for boxy or flat objects.
 - **Size**: 10, 15, 20, 30, 50 cm or custom (longest side of the finished model)
 - **Paper**: A4, A3 or US Letter
-- **Detail**: Simple (about 80 faces), Standard (150) or Detailed (250)
+- **Detail**: Simple, Standard or Detailed (3 / 4 / up to 6 round parts, or about 80 / 150 / 250 faces in Faceted style)
 
 The page uploads the photo, follows the GitHub build and gives you the PDF to download, usually in 1–3 minutes. It runs entirely in your browser and talks only to GitHub.
 
@@ -60,6 +61,7 @@ python photo2paper.py model.glb --photo pen.png      # skip the AI step, unfold 
 | Option | Meaning |
 |---|---|
 | `--faces` | Number of flat faces (default 150). Fewer faces make the model easier to build; more faces keep more detail. |
+| `--style` | `simple` (default, cylinders/cones like paper toys) or `faceted` (true shape) |
 | `--paper` | A4 (default), A3 or Letter |
 | `--size`  | Length of the finished model's longest side in mm (default 150) |
 | `--out`   | Output PDF path |
@@ -73,6 +75,10 @@ The PDF has an instruction page, then A4 sheets. Solid lines are cuts. Dashed li
 2. **Simplify**: welds texture seams, drops floating fragments, then decimates in stages to the target face count. It also removes folded-over faces and retries nearby targets until the mesh is closed.
 3. **Unfold** (`unfold.py`): grows flat pieces across the gentlest folds first. A face is rejected if it would overlap its piece or make the piece too large for A4.
 4. **Annotate and lay out**: marks mountain or valley folds and numbers each cut edge pair. Glue tabs go on the side where they don't collide. The pieces are rotated and packed onto pages, then drawn with reportlab.
+
+### Simple shapes style (`simple_shapes.py`)
+
+Slices the 3D model top to bottom, measures how wide it is at each height, and fits up to 3–6 straight-sided round parts (cylinders and cones) to that outline. Each part is unrolled flat. The model's outermost surface (face, arms, belt) is projected onto it from the outside, with the seam at the back so the front stays whole. Parts are joined by shared discs with glue teeth.
 
 ## Limits
 

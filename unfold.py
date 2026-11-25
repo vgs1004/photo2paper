@@ -432,7 +432,135 @@ def layout(pieces):
 
 
 # --------------------------------------------------------------- render
-def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, preview_png=None):
+# ------------------------------------------------------- printed texture
+PX_PER_MM = 6.0          # ~150 dpi: sharp enough for paper, keeps PDFs small
+BLEED_MM = 1.0           # print a little past the cut lines so no white edges show
+
+
+class TextureSampler:
+    """Looks up the colour of the detailed, textured AI model near any 3D point.
+
+    The paper model only has ~150 flat faces, far too few to hold a face, a logo
+    or stripes. So instead of one colour per face we print, for every pixel of a
+    paper face, the colour of the detailed model's surface right behind it.
+    """
+
+    def __init__(self, mesh: trimesh.Trimesh, scale: float, n_samples: int = 400_000):
+        vis = mesh.visual
+        mat = vis.material
+        img = getattr(mat, "baseColorTexture", None) or getattr(mat, "image", None)
+        tex = np.asarray(img.convert("RGB"), dtype=np.float32)
+        h, w = tex.shape[:2]
+        pts, fidx = trimesh.sample.sample_surface(mesh, n_samples, seed=0)
+        bary = trimesh.triangles.points_to_barycentric(mesh.triangles[fidx], pts)
+        uv = (np.asarray(vis.uv, dtype=np.float64)[mesh.faces[fidx]] * bary[:, :, None]).sum(axis=1)
+        u = (uv[:, 0] % 1.0) * (w - 1)
+        v = (1 - uv[:, 1] % 1.0) * (h - 1)
+        col = tex[v.round().astype(int), u.round().astype(int)]
+        factor = getattr(mat, "baseColorFactor", None)
+        if factor is not None:
+            f = np.asarray(factor[:3], dtype=np.float32)
+            col *= f / 255.0 if f.max() > 1 else f
+        # AI textures come out a little dark and flat: stretch to use the full range
+        lum = col @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+        hi = np.percentile(lum, 99.5)
+        if hi > 1:
+            col = np.clip(col * min(1.35, 245.0 / hi), 0, 255)
+        self.colors = col.astype(np.uint8)
+        self.normals = mesh.face_normals[fidx]
+        self.tree = cKDTree(pts * scale)
+
+    def sample(self, points, normals):
+        """Colours for 3D points lying on paper faces with the given normals."""
+        k = 6
+        _, idx = self.tree.query(points, k=k)
+        # skip matches on the far side of thin parts (opposite normal)
+        facing = np.einsum("nkj,nj->nk", self.normals[idx], normals) > 0.1
+        w = facing.astype(np.float32)
+        w[w.sum(axis=1) == 0, 0] = 1.0
+        cols = self.colors[idx].astype(np.float32)
+        return (cols * w[:, :, None]).sum(axis=1) / w.sum(axis=1, keepdims=True)
+
+
+def usable_texture(mesh) -> bool:
+    try:
+        vis = mesh.visual
+        if vis.kind != "texture" or vis.uv is None:
+            return False
+        img = getattr(vis.material, "baseColorTexture", None) or getattr(vis.material, "image", None)
+        if img is None:
+            return False
+        a = np.asarray(img.convert("RGB").resize((64, 64)), dtype=float)
+        return a.max() > 25 and np.ptp(a) > 10
+    except Exception:
+        return False
+
+
+def rasterize_piece(piece, mesh, sampler):
+    """RGBA image of one flat piece with the model's texture printed on it.
+
+    Returns (PIL image, minx, miny, width_mm, height_mm) in piece coordinates.
+    """
+    from PIL import Image
+    from scipy import ndimage
+
+    V = np.asarray(mesh.vertices)
+    F = np.asarray(mesh.faces)
+    N = mesh.face_normals
+    allpts = np.array([q for _, pts in piece["faces"] for q in pts])
+    minx, miny = allpts.min(axis=0) - BLEED_MM
+    maxx, maxy = allpts.max(axis=0) + BLEED_MM
+    W = int(math.ceil((maxx - minx) * PX_PER_MM))
+    H = int(math.ceil((maxy - miny) * PX_PER_MM))
+    rgb = np.zeros((H, W, 3), dtype=np.float32)
+    filled = np.zeros((H, W), dtype=bool)
+
+    for f, pts in piece["faces"]:
+        P = np.asarray(pts, dtype=float)                     # 2D, same vertex order as F[f]
+        x0, y0 = P.min(axis=0)
+        x1, y1 = P.max(axis=0)
+        c0 = max(0, int((x0 - minx) * PX_PER_MM) - 1)
+        c1 = min(W, int((x1 - minx) * PX_PER_MM) + 2)
+        r0 = max(0, int((maxy - y1) * PX_PER_MM) - 1)
+        r1 = min(H, int((maxy - y0) * PX_PER_MM) + 2)
+        cols, rows = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+        px = minx + (cols + 0.5) / PX_PER_MM
+        py = maxy - (rows + 0.5) / PX_PER_MM
+        # barycentric coordinates of every pixel centre
+        a, b, cc = P
+        m = np.array([[b[0] - a[0], cc[0] - a[0]], [b[1] - a[1], cc[1] - a[1]]])
+        det = np.linalg.det(m)
+        if abs(det) < 1e-12:
+            continue
+        inv = np.linalg.inv(m)
+        rel = np.stack([px - a[0], py - a[1]], axis=-1)
+        l12 = rel @ inv.T
+        l1, l2 = l12[..., 0], l12[..., 1]
+        l0 = 1 - l1 - l2
+        eps = 0.6 / PX_PER_MM / max(1e-6, np.sqrt(abs(det)))   # cover pixels on shared edges
+        inside = (l0 >= -eps) & (l1 >= -eps) & (l2 >= -eps) & ~filled[r0:r1, c0:c1]
+        if not inside.any():
+            continue
+        tri3 = V[F[f]]
+        p3 = (l0[inside, None] * tri3[0] + l1[inside, None] * tri3[1] + l2[inside, None] * tri3[2])
+        colours = sampler.sample(p3, np.repeat(N[f][None, :], len(p3), axis=0))
+        rr, cc_ = rows[inside], cols[inside]
+        rgb[rr, cc_] = colours
+        filled[rr, cc_] = True
+
+    # bleed: extend the outermost colours a little past the cut line
+    if filled.any():
+        dist, (ir, ic) = ndimage.distance_transform_edt(~filled, return_indices=True)
+        grow = (dist <= BLEED_MM * PX_PER_MM) & ~filled
+        rgb[grow] = rgb[ir[grow], ic[grow]]
+        filled |= grow
+    alpha = (filled * 255).astype(np.uint8)
+    img = Image.fromarray(np.dstack([np.clip(rgb, 0, 255).astype(np.uint8), alpha]), "RGBA")
+    return img, minx, miny, maxx - minx, maxy - miny
+
+
+def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, preview_png=None,
+               mesh=None, sampler=None):
     from reportlab.pdfgen import canvas
     from reportlab.lib.colors import Color
 
@@ -497,6 +625,7 @@ def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, pre
             cs, sn = math.cos(th), math.sin(th)
             dx, dy = p["off"]
             ax, ay = p["at"]
+            ay = USABLE_H - ay - p["h"]          # fill sheets from the top down
 
             def T(pt):
                 x, y = pt
@@ -517,8 +646,16 @@ def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, pre
                 c.setLineWidth(0.5)
                 c.setDash()
                 c.drawPath(path, fill=1, stroke=1)
-            # faces
-            for f, pts in piece["faces"]:
+            # faces: the model's texture printed across the piece, or flat colours
+            if sampler is not None:
+                from reportlab.lib.utils import ImageReader
+                img, mx, my, w, h = rasterize_piece(piece, mesh, sampler)
+                c.saveState()
+                c.translate((dx + ax + ox) * MM, (dy + ay + oy) * MM)
+                c.rotate(ang)
+                c.drawImage(ImageReader(img), mx * MM, my * MM, w * MM, h * MM, mask="auto")
+                c.restoreState()
+            for f, pts in ([] if sampler is not None else piece["faces"]):
                 col = colors[f] / 255.0
                 path = c.beginPath()
                 tp = [T(q) for q in pts]
@@ -531,9 +668,9 @@ def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, pre
                 c.setLineWidth(0.3)
                 c.drawPath(path, fill=1, stroke=1)
             # folds
-            c.setLineWidth(0.35)
+            c.setLineWidth(0.3 if sampler is not None else 0.35)
             for pa, pb, kind in piece["folds"]:
-                c.setStrokeColor(Color(0.15, 0.15, 0.15))
+                c.setStrokeColor(Color(0.15, 0.15, 0.15, alpha=0.6 if sampler is not None else 1))
                 c.setDash([6, 3] if kind == "valley" else [6, 2, 1, 2])
                 c.line(*T(pa), *T(pb))
             c.setDash()
@@ -598,7 +735,7 @@ def photo_colour(photo_path):
 
 
 def mesh_to_papercraft(mesh_path, out_pdf, faces=150, size_mm=150.0, title="Papercraft model",
-                       preview_png=None, log=print, paper="A4"):
+                       preview_png=None, log=print, paper="A4", texture=True):
     set_paper(paper)
     mesh = load_mesh(mesh_path)
     log(f"loaded mesh: {len(mesh.faces)} faces")
@@ -614,11 +751,16 @@ def mesh_to_papercraft(mesh_path, out_pdf, faces=150, size_mm=150.0, title="Pape
         shade = 0.8 + 0.2 * np.abs(simple.face_normals[:, 1:2])
         colors = np.clip(base[None, :] * shade, 0, 255)
         log(f"model texture was empty; using photo colour {base.round().astype(int).tolist()}")
+    sampler = None
+    if texture and usable_texture(mesh):
+        sampler = TextureSampler(mesh, size_mm / ext)
+        log("printing the model's full texture on the pieces")
     islands, edge_info = unfold(simple)
     log(f"unfolded into {len(islands)} pieces")
     pieces, n_pairs = annotate(islands, edge_info, simple)
     pages = layout(pieces)
-    render_pdf(pages, colors, out_pdf, title, n_pairs, size_mm, len(simple.faces), preview_png)
+    render_pdf(pages, colors, out_pdf, title, n_pairs, size_mm, len(simple.faces), preview_png,
+               mesh=simple, sampler=sampler)
     log(f"wrote {out_pdf}: {len(pages)} {paper} sheet(s) + instructions page")
     return {"faces": len(simple.faces), "pieces": len(islands), "sheets": len(pages),
             "watertight": bool(simple.is_watertight)}
