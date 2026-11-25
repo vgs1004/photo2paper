@@ -16,6 +16,16 @@ Nothing is preset per object. A photo of a headphone, a pen, or a telephone goes
 
 Full output: [examples/telephone_papercraft.pdf](examples/telephone_papercraft.pdf)
 
+## Web page (easiest)
+
+Open **https://vgs1004.github.io/photo2paper/**, connect once with a GitHub token (the page explains how), drop a photo, and pick:
+
+- **Size**: 10, 15, 20, 30, 50 cm or custom (longest side of the finished model)
+- **Paper**: A4, A3 or US Letter
+- **Detail**: Simple (about 80 faces), Standard (150) or Detailed (250)
+
+The page uploads the photo, follows the GitHub build and gives you the PDF to download, usually in 1–3 minutes. It runs entirely in your browser and talks only to GitHub.
+
 ## Run it on GitHub (no install)
 
 **Option A: upload a photo**
@@ -50,6 +60,7 @@ python photo2paper.py model.glb --photo pen.png      # skip the AI step, unfold 
 | Option | Meaning |
 |---|---|
 | `--faces` | Number of flat faces (default 150). Fewer faces make the model easier to build; more faces keep more detail. |
+| `--paper` | A4 (default), A3 or Letter |
 | `--size`  | Length of the finished model's longest side in mm (default 150) |
 | `--out`   | Output PDF path |
 | `--photo` | With a 3D-model input: source photo for the cover page and the fallback colour |

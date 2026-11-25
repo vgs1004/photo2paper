@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo to Papercraft</title>
+<meta name="description" content="Upload a photo of any object and get a printable cut, fold and glue 3D paper model.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 10v12L16 29 3 22V10z' fill='%23c2410c'/%3E%3Cpath d='M16 3v26M3 10l13 7 13-7' stroke='%23fff' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 10v12L16 29 3 22V10z"/><path class="fold" d="M16 3v26M3 10l13 7 13-7"/></svg>
+    <div>
+      <h1>Photo to Papercraft</h1>
+      <p class="sub">Upload a photo of any object. Get a printable sheet that you cut, fold and glue into a 3D model.</p>
+    </div>
+  </header>
+
+  <!-- connect -->
+  <section class="card" id="connect-card">
+    <div class="card-head">
+      <h2><span class="num">1</span> Connect to GitHub</h2>
+      <span class="pill" id="conn-state">Not connected</span>
+    </div>
+    <div id="connect-body">
+      <p class="muted">The page saves your photo into the <a id="repo-link" target="_blank" rel="noopener">repo</a>, and GitHub builds the model there. It needs a GitHub access token. You only have to do this once.</p>
+      <details class="howto">
+        <summary>How to get a token (2 minutes)</summary>
+        <ol>
+          <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
+          <li>Give it a name such as "papercraft", and choose an expiry.</li>
+          <li>Under <b>Repository access</b>, pick <b>Only select repositories</b>, then choose <b id="repo-name-hint">photo2paper</b>.</li>
+          <li>Under <b>Permissions → Repository</b>, set <b>Contents</b> to <b>Read and write</b> and <b>Actions</b> to <b>Read-only</b>.</li>
+          <li>Click <b>Generate token</b>, then copy it and paste it below.</li>
+        </ol>
+        <p class="muted small">The token is only sent to api.github.com. If you tick "Remember", it's kept in this browser only.</p>
+      </details>
+      <div class="row">
+        <input id="token" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false" aria-label="GitHub token">
+        <button id="connect" class="btn">Connect</button>
+      </div>
+      <label class="check"><input type="checkbox" id="remember" checked> Remember on this device</label>
+      <p class="err" id="conn-err" hidden></p>
+    </div>
+  </section>
+
+  <!-- photo + options -->
+  <section class="card" id="make-card">
+    <h2><span class="num">2</span> Photo and size</h2>
+
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+      <img id="preview" alt="" hidden>
+      <span class="drop-text" id="drop-text"><b>Choose a photo</b> or drop it here<br><span class="muted small">One object, fully in view. Any background is fine.</span></span>
+    </label>
+
+    <div class="field">
+      <label for="name">Name</label>
+      <input id="name" placeholder="e.g. headphones" maxlength="40">
+    </div>
+
+    <div class="field">
+      <span class="label">Finished size <span class="muted">(longest side)</span></span>
+      <div class="seg" id="size-seg" role="radiogroup" aria-label="Finished size">
+        <button data-v="100">10 cm</button>
+        <button data-v="150" class="on">15 cm</button>
+        <button data-v="200">20 cm</button>
+        <button data-v="300">30 cm</button>
+        <button data-v="500">50 cm</button>
+        <button data-v="custom">Custom</button>
+      </div>
+      <div class="row custom" id="custom-row" hidden>
+        <input id="custom-size" type="number" min="5" max="100" step="1" value="25"> <span>cm</span>
+      </div>
+      <p class="hint" id="size-hint"></p>
+    </div>
+
+    <div class="field">
+      <span class="label">Paper</span>
+      <div class="seg" id="paper-seg" role="radiogroup" aria-label="Paper">
+        <button data-v="A4" class="on">A4</button>
+        <button data-v="A3">A3</button>
+        <button data-v="Letter">US Letter</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="label">Detail</span>
+      <div class="seg" id="detail-seg" role="radiogroup" aria-label="Detail">
+        <button data-v="80">Simple</button>
+        <button data-v="150" class="on">Standard</button>
+        <button data-v="250">Detailed</button>
+      </div>
+      <p class="hint" id="detail-hint"></p>
+    </div>
+
+    <p class="note">⚠ The repo is public, so anyone can see the photos you upload.</p>
+    <button id="go" class="btn big" disabled>Make my papercraft</button>
+    <p class="err" id="go-err" hidden></p>
+  </section>
+
+  <!-- progress -->
+  <section class="card" id="progress-card" hidden>
+    <div class="card-head">
+      <h2><span class="num">3</span> Building <span id="job-name"></span></h2>
+      <span class="pill" id="elapsed">0:00</span>
+    </div>
+    <ol class="steps" id="steps">
+      <li data-k="upload">Uploading photo</li>
+      <li data-k="queue">Waiting for GitHub to start</li>
+      <li data-k="build">AI is making the 3D model, then unfolding it <span class="muted small">(usually 1–3 min)</span></li>
+      <li data-k="done">Ready</li>
+    </ol>
+    <div id="result" hidden>
+      <div class="row">
+        <a class="btn big" id="download" download>Download PDF</a>
+        <a class="btn ghost" id="open-gh" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+      <p class="muted small">Print at <b>100% / Actual size</b> on thin card (160–200 gsm). The first page has the instructions.</p>
+      <iframe id="pdf-view" title="PDF preview"></iframe>
+    </div>
+    <p class="err" id="run-err" hidden></p>
+  </section>
+
+  <!-- gallery -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Made so far</h2>
+      <button class="btn ghost small" id="refresh">Refresh</button>
+    </div>
+    <ul class="gallery" id="gallery"><li class="muted">Loading…</li></ul>
+  </section>
+
+  <footer class="muted small">
+    <a id="repo-foot" target="_blank" rel="noopener">Source on GitHub</a> · Free AI models allow a few photos a day; add an <code>HF_TOKEN</code> repo secret for more.
+  </footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -91,18 +91,47 @@ def photo_to_mesh(image_path, out_dir, log=print):
     raise RuntimeError("Both hosted 3D models failed:\n  " + "\n  ".join(errors))
 
 
+def _apply_settings_file(args, path):
+    """photos/<name>.json (written by the web page) overrides size, faces and paper."""
+    if not os.path.exists(path):
+        return
+    import json
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception as e:
+        print(f"ignoring unreadable settings file {path}: {e}")
+        return
+
+    def num(key, lo, hi):
+        try:
+            return min(hi, max(lo, float(d[key])))
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    if (v := num("size", 50, 1000)) is not None:
+        args.size = v
+    if (v := num("faces", 40, 400)) is not None:
+        args.faces = int(v)
+    if d.get("paper") in ("A4", "A3", "Letter"):
+        args.paper = d["paper"]
+    print(f"settings from {os.path.basename(path)}: {args.size:.0f} mm, {args.faces} faces, {args.paper}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("input", help="photo (jpg/png/webp) or an existing 3D model (glb/obj/ply/stl)")
     ap.add_argument("--faces", type=int, default=150,
                     help="paper faces; fewer = easier to build, more = more detail (default 150)")
     ap.add_argument("--size", type=float, default=150, help="longest side of finished model in mm (default 150)")
+    ap.add_argument("--paper", default="A4", choices=["A4", "A3", "Letter"], help="paper size (default A4)")
     ap.add_argument("--out", default=None, help="output PDF path")
     ap.add_argument("--title", default=None)
     ap.add_argument("--photo", default=None, help="with a 3D model input: the source photo (cover + colour fallback)")
     args = ap.parse_args()
 
     src = os.path.abspath(args.input)
+    _apply_settings_file(args, os.path.splitext(src)[0] + ".json")
     base = os.path.splitext(os.path.basename(src))[0]
     out_dir = os.path.dirname(os.path.abspath(args.out)) if args.out else os.path.dirname(src)
     out_pdf = args.out or os.path.join(out_dir, base + "_papercraft.pdf")
@@ -115,9 +144,9 @@ def main():
     mesh_path = src if is_mesh else photo_to_mesh(src, out_dir)
 
     info = mesh_to_papercraft(mesh_path, out_pdf, faces=args.faces, size_mm=args.size,
-                              title=title, preview_png=preview)
+                              title=title, preview_png=preview, paper=args.paper)
     print(f"\nDone: {out_pdf}")
-    print(f"  {info['faces']} faces in {info['pieces']} pieces on {info['sheets']} A4 sheet(s)")
+    print(f"  {info['faces']} faces in {info['pieces']} pieces on {info['sheets']} {args.paper} sheet(s)")
     if not info["watertight"]:
         print("  note: the 3D model has holes, so some edges are plain cut edges with no partner")
 
