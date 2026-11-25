@@ -49,6 +49,30 @@ def test_unfold_is_buildable(name, tmp_path):
     assert flat_area == pytest.approx(simple.area, rel=1e-6)
 
 
+def test_texture_is_printed(tmp_path):
+    """A textured model gets its picture printed on the pieces, not flat colours."""
+    from PIL import Image
+    sphere = trimesh.creation.icosphere(subdivisions=4)
+    v = sphere.vertices
+    uv = np.c_[0.5 + np.arctan2(v[:, 1], v[:, 0]) / (2 * np.pi), 0.5 + np.arcsin(np.clip(v[:, 2], -1, 1)) / np.pi]
+    tex = np.zeros((64, 64, 3), np.uint8)
+    tex[:, :32] = (220, 30, 30)
+    tex[:, 32:] = (30, 30, 220)
+    sphere.visual = trimesh.visual.TextureVisuals(uv=uv, image=Image.fromarray(tex))
+    path = tmp_path / "ball.glb"
+    sphere.export(path)
+    out = tmp_path / "ball.pdf"
+    U.mesh_to_papercraft(str(path), str(out), faces=100, log=lambda *a: None)
+    import pymupdf
+    doc = pymupdf.open(str(out))
+    assert sum(len(p.get_images()) for p in doc) >= 1
+    # both texture colours appear on the sheets
+    pix = doc[1].get_pixmap(dpi=30)
+    px = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)[..., :3].reshape(-1, 3)
+    assert ((px[:, 0] > 150) & (px[:, 2] < 90)).any()
+    assert ((px[:, 2] > 150) & (px[:, 0] < 90)).any()
+
+
 def test_pdf_written(tmp_path):
     path = tmp_path / "sphere.glb"
     trimesh.creation.icosphere(subdivisions=3).export(path)
