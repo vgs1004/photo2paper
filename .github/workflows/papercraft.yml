@@ -1,8 +1,11 @@
 name: Make papercraft
 
-# Upload a photo into the photos/ folder (Add file -> Upload files on github.com)
-# and this builds papercraft/<photo name>.pdf. Or run it by hand from the
-# Actions tab with an image URL.
+# Three ways in:
+#  - the web page (docs/index.html, served by GitHub Pages) uploads
+#    photos/<name>.jpg plus photos/<name>.json with size / detail / paper
+#  - Add file -> Upload files into photos/ on github.com (default settings)
+#  - Actions tab -> Run workflow with an image link
+# Each builds papercraft/<name>.pdf and commits it.
 on:
   push:
     paths:
@@ -21,12 +24,17 @@ on:
       size:
         description: "Longest side of the finished model, in mm"
         default: "150"
+      paper:
+        description: "Paper size"
+        type: choice
+        options: [A4, A3, Letter]
+        default: A4
 
 permissions:
   contents: write
 
 concurrency:
-  group: papercraft
+  group: papercraft-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -70,18 +78,30 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
-            git diff-tree --no-commit-id --name-only --diff-filter=AM -r HEAD -- photos > todo.txt
+            git diff-tree --no-commit-id --name-only --diff-filter=AM -r HEAD -- photos > changed.txt
           else
-            git diff --name-only --diff-filter=AM "$BEFORE" HEAD -- photos > todo.txt
+            git diff --name-only --diff-filter=AM "$BEFORE" HEAD -- photos > changed.txt
           fi
-          grep -iE '\.(jpe?g|png|webp)$' todo.txt > todo2.txt || true
-          mv todo2.txt todo.txt
+          # a photo counts if it changed, or if only its settings file changed
+          : > todo.txt
+          while IFS= read -r f; do
+            case "$f" in
+              *.json)
+                for e in jpg jpeg png webp JPG JPEG PNG WEBP; do
+                  [ -f "${f%.json}.$e" ] && echo "${f%.json}.$e" >> todo.txt
+                done ;;
+              *.jpg|*.jpeg|*.png|*.webp|*.JPG|*.JPEG|*.PNG|*.WEBP)
+                echo "$f" >> todo.txt ;;
+            esac
+          done < changed.txt
+          sort -u -o todo.txt todo.txt
           echo "Photos to process:"; cat todo.txt
 
       - name: Build papercraft PDFs
         env:
           FACES: ${{ inputs.faces || '150' }}
           SIZE: ${{ inputs.size || '150' }}
+          PAPER: ${{ inputs.paper || 'A4' }}
         run: |
           mkdir -p papercraft
           status=0
@@ -89,9 +109,10 @@ jobs:
             [ -f "$photo" ] || continue
             name=$(basename "${photo%.*}")
             echo "::group::$photo"
-            if python photo2paper.py "$photo" --faces "$FACES" --size "$SIZE" \
-                 --out "papercraft/$name.pdf"; then
-              echo "- [$name.pdf](papercraft/$name.pdf) from \`$photo\`" >> "$GITHUB_STEP_SUMMARY"
+            # photos/<name>.json, if present, overrides these defaults
+            if python photo2paper.py "$photo" --faces "$FACES" --size "$SIZE" --paper "$PAPER" \
+                 --out "papercraft/$name.pdf" | tee run.log; then
+              echo "- [$name.pdf](papercraft/$name.pdf) from \`$photo\`: $(grep -m1 'faces in' run.log)" >> "$GITHUB_STEP_SUMMARY"
             else
               echo "- **$photo failed** (see log; usually the free AI quota, add an HF_TOKEN secret)" >> "$GITHUB_STEP_SUMMARY"
               status=1
@@ -99,6 +120,7 @@ jobs:
             echo "::endgroup::"
           done < todo.txt
           exit $status
+        shell: bash -o pipefail -e {0}
 
       - name: Save PDFs to the repo
         if: always()

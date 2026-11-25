@@ -24,6 +24,18 @@ MARGIN = 10.0
 HEADER = 14.0                        # space for the page title
 USABLE_W = PAGE_W - 2 * MARGIN
 USABLE_H = PAGE_H - 2 * MARGIN - HEADER
+
+PAPERS = {"A4": (210.0, 297.0), "A3": (297.0, 420.0), "Letter": (215.9, 279.4)}
+
+
+def set_paper(name: str):
+    """Switch the page size used by unfolding, layout and rendering."""
+    global PAGE_W, PAGE_H, USABLE_W, USABLE_H
+    if name not in PAPERS:
+        raise ValueError(f"paper must be one of {', '.join(PAPERS)}")
+    PAGE_W, PAGE_H = PAPERS[name]
+    USABLE_W = PAGE_W - 2 * MARGIN
+    USABLE_H = PAGE_H - 2 * MARGIN - HEADER
 GAP = 4.0                            # space between pieces
 TAB_H = 5.0                          # glue tab height, mm
 
@@ -433,7 +445,7 @@ def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, pre
     c.setFont("Helvetica", 10)
     lines = [
         f"Finished size: about {size_mm:.0f} mm on its longest side.   Faces: {face_count}.   "
-        f"Pieces: {sum(len(p) for p in pages)}.   Pages to print: {len(pages)}.",
+        f"Pieces: {sum(len(p) for p in pages)}.   Sheets to print: {len(pages)} x {paper_name()}.",
         "",
         "Print at 100% / 'Actual size' (not 'Fit to page') on 160-200 gsm card.",
         "",
@@ -567,6 +579,13 @@ def render_pdf(pages, colors, out_path, title, n_pairs, size_mm, face_count, pre
     c.save()
 
 
+def paper_name():
+    for k, v in PAPERS.items():
+        if v == (PAGE_W, PAGE_H):
+            return k
+    return f"{PAGE_W:.0f}x{PAGE_H:.0f} mm"
+
+
 # ---------------------------------------------------------------- main API
 def photo_colour(photo_path):
     """Median colour of the object in a photo (pixels unlike the border background)."""
@@ -579,7 +598,8 @@ def photo_colour(photo_path):
 
 
 def mesh_to_papercraft(mesh_path, out_pdf, faces=150, size_mm=150.0, title="Papercraft model",
-                       preview_png=None, log=print):
+                       preview_png=None, log=print, paper="A4"):
+    set_paper(paper)
     mesh = load_mesh(mesh_path)
     log(f"loaded mesh: {len(mesh.faces)} faces")
     simple, colors = simplify(mesh, faces)
@@ -599,6 +619,6 @@ def mesh_to_papercraft(mesh_path, out_pdf, faces=150, size_mm=150.0, title="Pape
     pieces, n_pairs = annotate(islands, edge_info, simple)
     pages = layout(pieces)
     render_pdf(pages, colors, out_pdf, title, n_pairs, size_mm, len(simple.faces), preview_png)
-    log(f"wrote {out_pdf}: {len(pages)} sheet(s) + instructions page")
+    log(f"wrote {out_pdf}: {len(pages)} {paper} sheet(s) + instructions page")
     return {"faces": len(simple.faces), "pieces": len(islands), "sheets": len(pages),
             "watertight": bool(simple.is_watertight)}
