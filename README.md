@@ -16,13 +16,30 @@ Nothing is preset per object. A photo of a headphone, a pen, or a telephone goes
 
 Full output: [examples/telephone_papercraft.pdf](examples/telephone_papercraft.pdf)
 
-## Install
+## Run it on GitHub (no install)
+
+**Option A: upload a photo**
+1. Open the [`photos/`](photos) folder on GitHub, then choose **Add file → Upload files**.
+2. Drop in your photo, for example `headphones.jpg`, and click **Commit changes**.
+3. After a few minutes, `papercraft/headphones.pdf` appears. You can follow the progress in the **Actions** tab.
+
+**Option B: from a link.** Open **Actions → Make papercraft → Run workflow**, then paste an image URL and a name.
+
+The PDF is also attached to each run under **Artifacts**, together with the 3D model.
+
+> This repo is public, so photos you upload here are public too.
+
+**Free AI quota.** Anonymous use of the hosted models allows only a few photos a day. To raise the limit, create a free token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) with the "Read" role. Then add it under **Settings → Secrets and variables → Actions → New repository secret** with the name `HF_TOKEN`.
+
+## Run it on your computer
+
+### Install
 
 ```
 pip install -r requirements.txt
 ```
 
-## Use
+### Use
 
 ```
 python photo2paper.py headphones.jpg                 # photo -> PDF

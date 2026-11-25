@@ -1,0 +1,121 @@
+name: Make papercraft
+
+# Upload a photo into the photos/ folder (Add file -> Upload files on github.com)
+# and this builds papercraft/<photo name>.pdf. Or run it by hand from the
+# Actions tab with an image URL.
+on:
+  push:
+    paths:
+      - "photos/**"
+  workflow_dispatch:
+    inputs:
+      image_url:
+        description: "Link to a photo (jpg/png/webp)"
+        required: true
+      name:
+        description: "Short name for the model, e.g. headphones"
+        required: true
+      faces:
+        description: "Number of flat faces (fewer = easier to build)"
+        default: "150"
+      size:
+        description: "Longest side of the finished model, in mm"
+        default: "150"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: papercraft
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}   # optional: bigger free GPU quota
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Fetch photo from link
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          URL: ${{ inputs.image_url }}
+          NAME: ${{ inputs.name }}
+        run: |
+          safe=$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_-' '_' | sed 's/_*$//')
+          curl -fsSL --max-filesize 20000000 -o "photos/$safe.img" "$URL"
+          type=$(file -b --mime-type "photos/$safe.img")
+          case "$type" in
+            image/jpeg) ext=jpg ;; image/png) ext=png ;; image/webp) ext=webp ;;
+            *) echo "::error::That link is not a jpg/png/webp image ($type)"; exit 1 ;;
+          esac
+          mv "photos/$safe.img" "photos/$safe.$ext"
+          echo "photos/$safe.$ext" > todo.txt
+
+      - name: Find new photos
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            git diff-tree --no-commit-id --name-only --diff-filter=AM -r HEAD -- photos > todo.txt
+          else
+            git diff --name-only --diff-filter=AM "$BEFORE" HEAD -- photos > todo.txt
+          fi
+          grep -iE '\.(jpe?g|png|webp)$' todo.txt > todo2.txt || true
+          mv todo2.txt todo.txt
+          echo "Photos to process:"; cat todo.txt
+
+      - name: Build papercraft PDFs
+        env:
+          FACES: ${{ inputs.faces || '150' }}
+          SIZE: ${{ inputs.size || '150' }}
+        run: |
+          mkdir -p papercraft
+          status=0
+          while IFS= read -r photo; do
+            [ -f "$photo" ] || continue
+            name=$(basename "${photo%.*}")
+            echo "::group::$photo"
+            if python photo2paper.py "$photo" --faces "$FACES" --size "$SIZE" \
+                 --out "papercraft/$name.pdf"; then
+              echo "- [$name.pdf](papercraft/$name.pdf) from \`$photo\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- **$photo failed** (see log; usually the free AI quota, add an HF_TOKEN secret)" >> "$GITHUB_STEP_SUMMARY"
+              status=1
+            fi
+            echo "::endgroup::"
+          done < todo.txt
+          exit $status
+
+      - name: Save PDFs to the repo
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add photos papercraft/*.pdf 2>/dev/null || true
+          if git diff --cached --quiet; then echo "nothing to commit"; exit 0; fi
+          git commit -m "Add papercraft PDF(s)"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: papercraft
+          path: |
+            papercraft/*.pdf
+            papercraft/*_3d.glb
+          if-no-files-found: ignore
