@@ -24,6 +24,11 @@ on:
       size:
         description: "Longest side of the finished model, in mm"
         default: "150"
+      style:
+        description: "simple = cylinders/cones with the picture printed on; faceted = true shape"
+        type: choice
+        options: [simple, faceted]
+        default: simple
       paper:
         description: "Paper size"
         type: choice
@@ -102,6 +107,7 @@ jobs:
           FACES: ${{ inputs.faces || '150' }}
           SIZE: ${{ inputs.size || '150' }}
           PAPER: ${{ inputs.paper || 'A4' }}
+          STYLE: ${{ inputs.style || 'simple' }}
         run: |
           mkdir -p papercraft
           status=0
@@ -110,9 +116,9 @@ jobs:
             name=$(basename "${photo%.*}")
             echo "::group::$photo"
             # photos/<name>.json, if present, overrides these defaults
-            if python photo2paper.py "$photo" --faces "$FACES" --size "$SIZE" --paper "$PAPER" \
+            if python photo2paper.py "$photo" --faces "$FACES" --size "$SIZE" --paper "$PAPER" --style "$STYLE" \
                  --out "papercraft/$name.pdf" | tee run.log; then
-              echo "- [$name.pdf](papercraft/$name.pdf) from \`$photo\`: $(grep -m1 'faces in' run.log)" >> "$GITHUB_STEP_SUMMARY"
+              echo "- [$name.pdf](papercraft/$name.pdf) from \`$photo\`: $(grep -m1 'pieces on' run.log)" >> "$GITHUB_STEP_SUMMARY"
             else
               echo "- **$photo failed** (see log; usually the free AI quota, add an HF_TOKEN secret)" >> "$GITHUB_STEP_SUMMARY"
               status=1

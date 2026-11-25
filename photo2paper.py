@@ -19,6 +19,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from unfold import mesh_to_papercraft  # noqa: E402
+from simple_shapes import simple_papercraft  # noqa: E402
 
 MESH_EXT = {".glb", ".gltf", ".obj", ".ply", ".stl", ".off"}
 
@@ -115,7 +116,10 @@ def _apply_settings_file(args, path):
         args.faces = int(v)
     if d.get("paper") in ("A4", "A3", "Letter"):
         args.paper = d["paper"]
-    print(f"settings from {os.path.basename(path)}: {args.size:.0f} mm, {args.faces} faces, {args.paper}")
+    if d.get("style") in ("simple", "faceted"):
+        args.style = d["style"]
+    print(f"settings from {os.path.basename(path)}: {args.style}, {args.size:.0f} mm, "
+          f"detail {args.faces}, {args.paper}")
 
 
 def main():
@@ -124,6 +128,9 @@ def main():
     ap.add_argument("--faces", type=int, default=150,
                     help="paper faces; fewer = easier to build, more = more detail (default 150)")
     ap.add_argument("--size", type=float, default=150, help="longest side of finished model in mm (default 150)")
+    ap.add_argument("--style", default="simple", choices=["simple", "faceted"],
+                    help="simple = a few cylinders/cones with the picture printed on, like paper toys "
+                         "(default); faceted = the true shape folded from many flat faces")
     ap.add_argument("--paper", default="A4", choices=["A4", "A3", "Letter"], help="paper size (default A4)")
     ap.add_argument("--out", default=None, help="output PDF path")
     ap.add_argument("--title", default=None)
@@ -143,10 +150,18 @@ def main():
         preview = os.path.abspath(args.photo)
     mesh_path = src if is_mesh else photo_to_mesh(src, out_dir)
 
+    if args.style == "simple":
+        # detail picks how many round parts: Simple 3, Standard 4, Detailed 6
+        parts = 3 if args.faces <= 100 else 4 if args.faces <= 200 else 6
+        info = simple_papercraft(mesh_path, out_pdf, size_mm=args.size, title=title,
+                                 preview_png=preview, paper=args.paper, max_parts=parts)
+        print(f"\nDone: {out_pdf}")
+        print(f"  {info['parts']} round parts, {info['pieces']} pieces on {info['sheets']} {args.paper} sheet(s)")
+        return
     info = mesh_to_papercraft(mesh_path, out_pdf, faces=args.faces, size_mm=args.size,
                               title=title, preview_png=preview, paper=args.paper)
     print(f"\nDone: {out_pdf}")
-    print(f"  {info['faces']} faces in {info['pieces']} pieces on {info['sheets']} {args.paper} sheet(s)")
+    print(f"  {info['faces']} faces, {info['pieces']} pieces on {info['sheets']} {args.paper} sheet(s)")
     if not info["watertight"]:
         print("  note: the 3D model has holes, so some edges are plain cut edges with no partner")
 
